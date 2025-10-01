@@ -72,10 +72,116 @@ create_bow_matrix <- function(df) {
 ```
 
 ```{r}
+naiveBayes <- setRefClass("naiveBayes",
+ 
+      fields = list(),
+      methods = list(
+        fit = function(X, y)
+        {
+          yb <- ifelse(y == "spam", 1, 0)
+          
+          p_spam <- sum(yb) / length(yb)
+          p_ham <- 1 - p_spam
+          
+          word_counts_labeled <- merge(X$word_counts, X$labels, by = "message_id")
+          
+          word_counts_spam <- dplyr::filter(word_counts_labeled, Category == "spam")
+          word_counts_ham  <- dplyr::filter(word_counts_labeled, Category == "ham")
+          
+          vocab <- unique(word_counts_labeled$word)
+          
+          # P(feature | spam)
+          p_spam_words <- word_counts_spam %>%
+            group_by(word) %>%
+            summarise(freq = sum(frequency), .groups = "drop") %>%
+            right_join(data.frame(word = vocab), by = "word") %>%
+            mutate(
+              freq = coalesce(freq, 0),
+              P = (freq + 1) / (sum(freq) + length(vocab))  
+            )
+          
+          # P(feature | ham)
+          p_ham_words <- word_counts_ham %>%
+            group_by(word) %>%
+            summarise(freq = sum(frequency), .groups = "drop") %>%
+            right_join(data.frame(word = vocab), by = "word") %>%
+            mutate(
+              freq = coalesce(freq, 0), 
+              P = (freq + 1) / (sum(freq) + length(vocab))
+            )
+          return(list(
+            p_spam = p_spam,
+            p_ham  = p_ham,
+            p_spam_words = p_spam_words,
+            p_ham_words  = p_ham_words,
+            vocab = vocab
+          ))
+        },
+                    
+        # return prediction for a single message 
+        predict = function(message)
+        {
+          words <- message$word
+          freqs <- message$frequency
+          
+          pm_spam <- fit_res$p_spam
+          pm_ham  <- fit_res$p_ham
+          
+          for (i in seq_along(words)) {
+            w <- words[i]
+            f <- freqs[i]
+            
+            # get P(word|spam)
+            p_w_spam <- fit_res$p_spam_words$P[fit_res$p_spam_words$word == w]
+            if (length(p_w_spam) == 0) p_w_spam <- 1 / (sum(fit_res$p_spam_words$freq) + length(fit_res$vocab))
+            
+            p_w_ham <- fit_res$p_ham_words$P[fit_res$p_ham_words$word == w]
+            if (length(p_w_ham) == 0) p_w_ham <- 1 / (sum(fit_res$p_ham_words$freq) + length(fit_res$vocab))
+            
+            pm_spam <- pm_spam * (p_w_spam ^ f)
+            pm_ham  <- pm_ham * (p_w_ham ^ f)
+          }
+          
+          cat("Probability of spam:", pm_spam, "\n")
+          cat("Probability of ham:", pm_ham, "\n")
+          
+          if (pm_spam > pm_ham) {
+            print("message probably is spam")
+          } else {
+            print("message probably is ham")
+          }
+        },
+        
+        # score you test set so to get the understanding how well you model
+        # works.
+        # look at f1 score or precision and recall
+        # visualize them 
+        # try how well your model generalizes to real world data! 
+        score = function(X_test, y_test)
+        {
+             # TODO
+        }
+))
+
+model = naiveBayes()
+
+```
+
+
+```{r}
 
 # Main processing
 df_train <- preprocess(datasets$train)
 bow_train <- create_bow_matrix(df_train)
+df_test <- preprocess(datasets$test)
+bow_test <- create_bow_matrix(df_test)
+
+
+
+
+model = naiveBayes()
+fit_res <- model$fit(bow_train, bow_train$labels)
+p <- model$predict(bow_test$word_counts[bow_test$word_counts$message_id == 38, ])
 
 
 # TODO REMOVE
